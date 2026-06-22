@@ -349,12 +349,20 @@
       </div>
 
       <div class="form-section">
-        <h3>📢 首頁公告</h3>
+        <h3>📢 首頁跑馬燈公告</h3>
         <div class="form-group">
-          <label class="form-label">公告內容</label>
+          <label class="form-label">公告內容（顯示在首頁頂部）</label>
           <input type="text" class="form-input" id="settingAnnounce" placeholder="輸入公告文字…">
         </div>
-        <button class="btn btn-primary" onclick="saveSetting('announce')">儲存公告</button>
+        <button class="btn btn-primary" onclick="saveSetting('announce')">儲存</button>
+      </div>
+
+      <div class="form-section">
+        <h3>📋 重要公告管理</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">顯示在前台「重要公告」頁面，可自由新增多則</p>
+        <div id="noticeList"></div>
+        <button class="btn btn-ghost" style="margin-top:8px;" onclick="addNoticeRow()">＋ 新增一則公告</button>
+        <button class="btn btn-primary" style="margin-left:10px;" onclick="saveSetting('notices')">儲存公告</button>
       </div>
 
       <div class="form-section">
@@ -436,9 +444,12 @@
       <textarea class="form-textarea" id="pDesc" placeholder="商品描述…"></textarea>
     </div>
     <div class="form-group" style="margin-bottom:14px;">
-      <label class="form-label">圖片網址（可空白）</label>
-      <input type="text" class="form-input" id="pImage" placeholder="https://…">
+      <label class="form-label">商品圖片網址（多張請用逗號分隔）</label>
+      <textarea class="form-textarea" id="pImage" placeholder="https://i.imgur.com/xxx.jpg, https://i.imgur.com/yyy.jpg" style="min-height:60px;"></textarea>
     </div>
+    <div class="form-group" style="margin-bottom:14px;">
+      <label class="form-label">規格選項（如：S, M, L 或 紅色, 藍色，沒有規格留空）</label>
+      <input type="text" class="form-input" id="pSpecs" placeholder="S, M, L, XL"></div>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
       <input type="checkbox" id="pActive" checked>
       <label class="form-label" style="margin-bottom:0;" for="pActive">上架中</label>
@@ -558,6 +569,7 @@ async function loadSettings() {
         document.getElementById('rateCA').value = d.rates.CA || '';
       }
       if (d.banners) renderBannerList(d.banners);
+      if (d.notices) renderNoticeList(d.notices);
     }
   } catch(e) {}
 }
@@ -672,11 +684,12 @@ window.openProductModal = (id) => {
       document.getElementById('pPrice').value = p.price||'';
       document.getElementById('pEmoji').value = p.emoji||'';
       document.getElementById('pDesc').value = p.desc||'';
-      document.getElementById('pImage').value = p.image||'';
+      document.getElementById('pImage').value = (p.images||[p.image||'']).filter(Boolean).join(', ');
+      document.getElementById('pSpecs').value = (p.specs||[]).join(', ');
       document.getElementById('pActive').checked = p.active!==false;
     }
   } else {
-    ['pName','pPrice','pEmoji','pDesc','pImage'].forEach(id => document.getElementById(id).value='');
+    ['pName','pPrice','pEmoji','pDesc','pImage','pSpecs'].forEach(id => document.getElementById(id).value='');
     document.getElementById('pActive').checked = true;
   }
   document.getElementById('productModal').style.display = 'flex';
@@ -685,6 +698,10 @@ window.openProductModal = (id) => {
 window.closeProductModal = () => { document.getElementById('productModal').style.display = 'none'; };
 
 window.saveProduct = async () => {
+  const imageVal = document.getElementById('pImage').value.trim();
+  const images = imageVal ? imageVal.split(',').map(s=>s.trim()).filter(Boolean) : [];
+  const specsVal = document.getElementById('pSpecs').value.trim();
+  const specs = specsVal ? specsVal.split(',').map(s=>s.trim()).filter(Boolean) : [];
   const data = {
     name: document.getElementById('pName').value.trim(),
     category: document.getElementById('pCategory').value,
@@ -692,7 +709,9 @@ window.saveProduct = async () => {
     price: Number(document.getElementById('pPrice').value),
     emoji: document.getElementById('pEmoji').value.trim() || '📦',
     desc: document.getElementById('pDesc').value.trim(),
-    image: document.getElementById('pImage').value.trim(),
+    image: images[0] || '',
+    images: images,
+    specs: specs,
     active: document.getElementById('pActive').checked,
     updatedAt: serverTimestamp()
   };
@@ -768,12 +787,23 @@ window.saveSetting = async (type) => {
         CA: document.getElementById('rateCA').value,
       }}, { merge: true });
       showToast('匯率已儲存', 'success');
+    } else if (type === 'notices') {
+      const rows = document.querySelectorAll('.notice-row');
+      const notices = Array.from(rows).map(r => ({
+        type: r.querySelector('.n-type').value,
+        typeLabel: r.querySelector('.n-type').selectedOptions[0].text,
+        title: r.querySelector('.n-title').value,
+        body: r.querySelector('.n-body').value,
+      })).filter(n => n.title);
+      await setDoc(ref, { notices }, { merge: true });
+      showToast('公告已儲存', 'success');
     } else if (type === 'banners') {
       const rows = document.querySelectorAll('.banner-row');
       const banners = Array.from(rows).map(r => ({
         label: r.querySelector('.b-label').value,
         title: r.querySelector('.b-title').value,
         sub: r.querySelector('.b-sub').value,
+        image: r.querySelector('.b-image').value,
         emoji: r.querySelector('.b-emoji').value,
         color: r.querySelector('.b-color').value,
       }));
@@ -782,6 +812,30 @@ window.saveSetting = async (type) => {
     }
   } catch(e) { showToast('儲存失敗', 'error'); }
 };
+
+window.addNoticeRow = (n) => {
+  const el = document.getElementById('noticeList');
+  const div = document.createElement('div');
+  div.className = 'notice-row';
+  div.style.cssText = 'background:var(--cream);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;';
+  div.innerHTML = `
+    <div style="display:grid;grid-template-columns:140px 1fr 36px;gap:8px;margin-bottom:8px;align-items:center;">
+      <select class="form-input n-type" style="padding:8px 10px;">
+        <option value="urgent" ${n?.type==='urgent'?'selected':''}>‼️ 緊急公告</option>
+        <option value="info" ${n?.type==='info'?'selected':''}>📢 一般公告</option>
+        <option value="announce" ${n?.type==='announce'?'selected':''}>✅ 好消息</option>
+      </select>
+      <input class="form-input n-title" placeholder="公告標題" value="${n?.title||''}" style="padding:8px 10px;">
+      <button class="btn btn-danger btn-sm" onclick="this.closest('.notice-row').remove()">✕</button>
+    </div>
+    <textarea class="form-input n-body" placeholder="公告內容（可換行）" style="min-height:80px;resize:vertical;padding:8px 10px;">${n?.body||''}</textarea>`;
+  el.appendChild(div);
+};
+
+function renderNoticeList(notices) {
+  document.getElementById('noticeList').innerHTML = '';
+  (notices||[]).forEach(n => addNoticeRow(n));
+}
 
 function renderBannerList(banners) {
   const el = document.getElementById('bannerList');
@@ -793,11 +847,12 @@ window.addBannerRow = (b) => {
   const el = document.getElementById('bannerList');
   const div = document.createElement('div');
   div.className = 'banner-row';
-  div.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 1fr 80px 80px 40px;gap:8px;margin-bottom:10px;align-items:center;';
+  div.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 1fr 1fr 80px 80px 40px;gap:8px;margin-bottom:10px;align-items:center;';
   div.innerHTML = `
     <input class="form-input b-label" placeholder="標籤（如：日本連線）" value="${b?.label||''}">
     <input class="form-input b-title" placeholder="標題" value="${b?.title||''}">
     <input class="form-input b-sub" placeholder="副標題" value="${b?.sub||''}">
+    <input class="form-input b-image" placeholder="圖片網址（可空白）" value="${b?.image||''}">
     <input class="form-input b-emoji" placeholder="🇯🇵" value="${b?.emoji||''}" style="text-align:center;">
     <input type="color" class="form-input b-color" value="${b?.color||'#EDE0D0'}" style="padding:4px;height:42px;">
     <button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">✕</button>
